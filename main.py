@@ -41,8 +41,9 @@ def main(args, ITE=0):
         from archs.mnist import AlexNet, LeNet5, fc1, vgg, resnet
 
     elif args.dataset == "cifar10":
+        transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))])
         traindataset = datasets.CIFAR10('../data', train=True, download=True,transform=transform)
-        testdataset = datasets.CIFAR10('../data', train=False, transform=transform)      
+        testdataset = datasets.CIFAR10('../data', train=False, transform=transform)
         from archs.cifar10 import AlexNet, LeNet5, fc1, vgg, resnet, densenet 
 
     elif args.dataset == "fashionmnist":
@@ -51,9 +52,28 @@ def main(args, ITE=0):
         from archs.mnist import AlexNet, LeNet5, fc1, vgg, resnet 
 
     elif args.dataset == "cifar100":
+        transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))])
         traindataset = datasets.CIFAR100('../data', train=True, download=True,transform=transform)
-        testdataset = datasets.CIFAR100('../data', train=False, transform=transform)   
+        testdataset = datasets.CIFAR100('../data', train=False, transform=transform)
         from archs.cifar100 import AlexNet, fc1, LeNet5, vgg, resnet  
+    
+    elif args.dataset == "cifar10_distilled":
+        transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))])
+        traindataset = datasets.CIFAR10('../data', train=True, download=True,transform=transform)
+        testdataset = datasets.CIFAR10('../data', train=False, transform=transform)
+        #distilled_traindataset
+        #distilled_traindataset
+        from archs.cifar10_distilled import cait, simplevit, swin, vit, vit_small
+
+    elif args.dataset == "cifar100_distilled":
+        transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))])
+        traindataset = datasets.CIFAR100('../data', train=True, download=True,transform=transform)
+        testdataset = datasets.CIFAR100('../data', train=False, transform=transform)
+        #distilled_traindataset
+        #distilled_traindataset
+        from archs.cifar100_distilled import cait, simplevit, swin, vit, vit_small
+
+
     
     # If you want to add extra datasets paste here
 
@@ -78,7 +98,19 @@ def main(args, ITE=0):
     elif args.arch_type == "resnet18":
         model = resnet.resnet18().to(device)   
     elif args.arch_type == "densenet121":
-        model = densenet.densenet121().to(device)   
+        model = densenet.densenet121().to(device)
+    elif args.arch_type == "cait":
+        model = cait.CaiT
+    elif args.arch_type == "swin_tiny":
+        model = swin.swin_t
+    elif args.arch_type == "swin_small":
+        model = swin.swin_b
+    elif args.arch_type == "simplevit":
+        model = simplevit.SimpleViT
+    elif args.arch_type == "vit":
+        model = vit.ViT
+    elif args.arch_type == "vit_small":
+        model = vit_small.ViT
     # If you want to add extra model paste here
     else:
         print("\nWrong Model choice\n")
