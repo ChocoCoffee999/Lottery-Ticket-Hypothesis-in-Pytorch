@@ -37,6 +37,22 @@ python3 main.py --prune_type=lt --arch_type=fc1 --dataset=mnist --prune_percent=
 	- Default : `1`
 - `--gpu`	: Decide Which GPU the program should use 
 	- Default : `0`
+
+### Adding some arguments for transformer distilled pruning with data condensation
+#### Adding arguments for transformer(default for cifar10)
+- `--size`	: Image size
+	- Default : 32
+- `--patch_size`	: Patch size
+	- Default : 4
+- `--dimhead`	:
+	- Default : 512
+#### Adding arguments for distilled Dataset
+- `--data_path`	: Data path
+	- Default : ''
+#### Adding arguments for replication
+- `--replication_num`	: Current replication number
+	- Default : 0
+
 ### Using datasets/architectures that are not included with this repository :
 - Adding a new architecture :
 	- For example, if you want to add an architecture named `new_model` with `mnist` dataset compatibility. 
@@ -98,12 +114,18 @@ Lottery-Ticket-Hypothesis-in-Pytorch
 │   │   ├── LeNet5.py
 │   │   ├── resnet.py
 │   │   └── vgg.py
-│   └── mnist
-│       ├── AlexNet.py
-│       ├── fc1.py
-│       ├── LeNet5.py
-│       ├── resnet.py
-│       └── vgg.py
+│   ├── mnist
+│   │   ├── AlexNet.py
+│   │   ├── fc1.py
+│   │   ├── LeNet5.py
+│   │   ├── resnet.py
+│   │   └── vgg.py
+│   └── transformer_distilled_pruning 
+│       ├──CaiT.py
+│       ├──SimpleViT
+│       ├──Swin
+│       ├──ViT_Small
+│       └──ViT
 ├── combine_plots.py
 ├── dumps
 ├── main.py

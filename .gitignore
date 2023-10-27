@@ -3,3 +3,8 @@
 /plots
 /runs
 /saves
+/.vscode
+/logs
+/os*
+/datasets
+*.sh

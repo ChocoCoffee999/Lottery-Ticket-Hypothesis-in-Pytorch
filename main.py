@@ -1,7 +1,9 @@
 # Importing Libraries
 import argparse
+import time
 import copy
 import os
+from os import path
 import sys
 import numpy as np
 from tqdm import tqdm
@@ -18,9 +20,11 @@ import torchvision.utils as vutils
 import seaborn as sns
 import torch.nn.init as init
 import pickle
+import json
 
 # Custom Libraries
 import utils
+import distilled_datasets
 
 # Tensorboard initialization
 writer = SummaryWriter()
@@ -30,6 +34,7 @@ sns.set_style('darkgrid')
 
 # Main
 def main(args, ITE=0):
+    start_time = time.time()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     reinit = True if args.prune_type=="reinit" else False
 
@@ -41,7 +46,7 @@ def main(args, ITE=0):
         from archs.mnist import AlexNet, LeNet5, fc1, vgg, resnet
 
     elif args.dataset == "cifar10":
-        transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))])
+        transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
         traindataset = datasets.CIFAR10('../data', train=True, download=True,transform=transform)
         testdataset = datasets.CIFAR10('../data', train=False, transform=transform)
         from archs.cifar10 import AlexNet, LeNet5, fc1, vgg, resnet, densenet 
@@ -58,20 +63,18 @@ def main(args, ITE=0):
         from archs.cifar100 import AlexNet, fc1, LeNet5, vgg, resnet  
     
     elif args.dataset == "cifar10_distilled":
-        transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))])
+        transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
         traindataset = datasets.CIFAR10('../data', train=True, download=True,transform=transform)
         testdataset = datasets.CIFAR10('../data', train=False, transform=transform)
-        #distilled_traindataset
-        #distilled_traindataset
-        from archs.cifar10_distilled import cait, simplevit, swin, vit, vit_small
+        #distilled_traindataset = distilled_datasets.CustomDataset(data_path=args.data_path)
+        from archs.transformer_distilled_pruning import cait, simplevit, swin, vit, vit_small
 
     elif args.dataset == "cifar100_distilled":
         transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))])
         traindataset = datasets.CIFAR100('../data', train=True, download=True,transform=transform)
         testdataset = datasets.CIFAR100('../data', train=False, transform=transform)
-        #distilled_traindataset
-        #distilled_traindataset
-        from archs.cifar100_distilled import cait, simplevit, swin, vit, vit_small
+        distilled_traindataset = distilled_datasets.CustomDataset(data_path=args.data_path)
+        from archs.transformer_distilled_pruning import cait, simplevit, swin, vit, vit_small
 
 
     
@@ -84,6 +87,9 @@ def main(args, ITE=0):
     train_loader = torch.utils.data.DataLoader(traindataset, batch_size=args.batch_size, shuffle=True, num_workers=0,drop_last=False)
     #train_loader = cycle(train_loader)
     test_loader = torch.utils.data.DataLoader(testdataset, batch_size=args.batch_size, shuffle=False, num_workers=0,drop_last=True)
+
+    # if args.dataset == "cifar10_distilled" or "cifar100_distilled":
+    #     distilled_train_loader = torch.utils.data.DataLoader(distilled_traindataset, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=False)
     
     # Importing Network Architecture
     global model
@@ -100,17 +106,85 @@ def main(args, ITE=0):
     elif args.arch_type == "densenet121":
         model = densenet.densenet121().to(device)
     elif args.arch_type == "cait":
-        model = cait.CaiT
-    elif args.arch_type == "swin_tiny":
-        model = swin.swin_t
-    elif args.arch_type == "swin_small":
-        model = swin.swin_b
+        model = cait.CaiT(
+            image_size = args.size,
+            patch_size = args.patch_size,
+            num_classes = 10,
+            dim = int(args.dimhead),
+            depth = 6,   # depth of transformer for patch to patch attention only
+            cls_depth=2, # depth of cross attention of CLS tokens to patch
+            heads = 8,
+            mlp_dim = 512,
+            dropout = 0.1,
+            emb_dropout = 0.1,
+            layer_dropout = 0.05
+        ).to(device)
+    elif args.arch_type == "cait_small":
+        model = cait.CaiT(
+            image_size = 32,
+            patch_size = args.patch_size,
+            num_classes = 10,
+            dim = int(args.dimhead),
+            depth = 6,   # depth of transformer for patch to patch attention only
+            cls_depth=2, # depth of cross attention of CLS tokens to patch
+            heads = 6,
+            mlp_dim = 256,
+            dropout = 0.1,
+            emb_dropout = 0.1,
+            layer_dropout = 0.05
+        ).to(device)
+    elif args.arch_type == "swin":
+        model = swin.swin_t(
+            window_size=args.patch,
+            num_classes=10,
+            downscaling_factors=(2,2,2,1)
+        ).to(device)
     elif args.arch_type == "simplevit":
-        model = simplevit.SimpleViT
+        model = simplevit.SimpleViT(
+            image_size = args.size,
+            patch_size = args.patch_size,
+            num_classes = 10,
+            dim = int(args.dimhead),
+            depth = 6,
+            heads = 8,
+            mlp_dim = 512
+        ).to(device)
     elif args.arch_type == "vit":
-        model = vit.ViT
+        model = vit.ViT(
+            image_size = args.size,
+            patch_size = args.patch_size,
+            num_classes = 10,
+            dim = int(args.dimhead),
+            depth = 6,
+            heads = 8,
+            mlp_dim = 512,
+            dropout = 0.1,
+            emb_dropout = 0.1
+        ).to(device)
     elif args.arch_type == "vit_small":
-        model = vit_small.ViT
+        model = vit_small.ViT(
+            image_size = args.size,
+            patch_size = args.patch_size,
+            num_classes = 10,
+            dim = int(args.dimhead),
+            depth = 6,
+            heads = 8,
+            mlp_dim = 512,
+            dropout = 0.1,
+            emb_dropout = 0.1
+        ).to(device)
+    elif args.arch_type == "vit_tiny":
+        model = vit_small.ViT(
+            image_size = args.size,
+            patch_size = args.patch_size,
+            num_classes = 10,
+            dim = int(args.dimhead),
+            depth = 4,
+            heads = 6,
+            mlp_dim = 256,
+            dropout = 0.1,
+            emb_dropout = 0.1
+        ).to(device)
     # If you want to add extra model paste here
     else:
         print("\nWrong Model choice\n")
@@ -121,8 +195,8 @@ def main(args, ITE=0):
 
     # Copying and Saving Initial State
     initial_state_dict = copy.deepcopy(model.state_dict())
-    utils.checkdir(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/")
-    torch.save(model, f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/initial_state_dict_{args.prune_type}.pth.tar")
+    utils.checkdir(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{args.replication_num}/")
+    torch.save(model, f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{args.replication_num}/initial_state_dict_{args.prune_type}.pth.tar")
 
     # Making Initial Mask
     make_mask(model)
@@ -139,15 +213,33 @@ def main(args, ITE=0):
     # NOTE First Pruning Iteration is of No Compression
     bestacc = 0.0
     best_accuracy = 0
+    time_taken = 0.0
     ITERATION = args.prune_iterations
-    comp = np.zeros(ITERATION,float)
-    bestacc = np.zeros(ITERATION,float)
-    step = 0
-    all_loss = np.zeros(args.end_iter,float)
-    all_accuracy = np.zeros(args.end_iter,float)
+    START, COMP = load_iterations(args)
+    if (START + 1) > ITERATION:
+        print(f"Invalid argument(start_iter : {args.start_iter}, prune_iterations : {args.prune_iterations}, load_iterations : {START})")
+        sys.exit()
+    elif (START + 1) == ITERATION:
+        print("This Iteration has already been completed")
+        sys.exit()
+    elif START:
+        comp, bestacc, time_taken, all_loss, all_accuracy = load_datas(args, COMP)
+        step = 0
+        del COMP
+    else:
+        del COMP
+        comp = np.zeros(ITERATION,float)
+        bestacc = np.zeros(ITERATION,float)
+        time_taken = np.zeros(ITERATION,float)
+        step = 0
+        all_loss = np.zeros(args.end_iter,float)
+        all_accuracy = np.zeros(args.end_iter,float)
 
 
-    for _ite in range(args.start_iter, ITERATION):
+    for _ite in range(START, ITERATION):
+        if (time.time() - start_time)/3600 > 23:
+            print(f'time_limit')
+            sys.exit()
         if not _ite == 0:
             prune_by_percentile(args.prune_percent, resample=resample, reinit=reinit)
             if reinit:
@@ -193,8 +285,8 @@ def main(args, ITE=0):
                 # Save Weights
                 if accuracy > best_accuracy:
                     best_accuracy = accuracy
-                    utils.checkdir(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/")
-                    torch.save(model,f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{_ite}_model_{args.prune_type}.pth.tar")
+                    utils.checkdir(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{args.replication_num}/")
+                    torch.save(model,f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{args.replication_num}/{_ite}_model_{args.prune_type}.pth.tar")
 
             # Training
             loss = train(model, train_loader, optimizer, criterion)
@@ -214,23 +306,26 @@ def main(args, ITE=0):
         #NOTE Normalized the accuracy to [0,100] for ease of plotting.
         plt.plot(np.arange(1,(args.end_iter)+1), 100*(all_loss - np.min(all_loss))/np.ptp(all_loss).astype(float), c="blue", label="Loss") 
         plt.plot(np.arange(1,(args.end_iter)+1), all_accuracy, c="red", label="Accuracy") 
-        plt.title(f"Loss Vs Accuracy Vs Iterations ({args.dataset},{args.arch_type})") 
+        plt.title(f"Loss Vs Accuracy Vs Iterations ({args.dataset},{args.arch_type},{args.replication_num})") 
         plt.xlabel("Iterations") 
         plt.ylabel("Loss and Accuracy") 
         plt.legend() 
         plt.grid(color="gray") 
-        utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/")
-        plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.prune_type}_LossVsAccuracy_{comp1}.png", dpi=1200) 
+        utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/")
+        plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_LossVsAccuracy_{comp1}.png", dpi=1200) 
         plt.close()
 
         # Dump Plot values
-        utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/")
-        all_loss.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.prune_type}_all_loss_{comp1}.dat")
-        all_accuracy.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.prune_type}_all_accuracy_{comp1}.dat")
-        
+        utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/")
+        all_loss.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_all_loss_{comp1}.dat")
+        all_accuracy.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_all_accuracy_{comp1}.dat")
+        comp.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_compression_{comp1}.dat")
+        bestacc.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_bestaccuracy_{comp1}.dat")
+        time_taken.dump(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_time_taken_{comp1}.dat')
+
         # Dumping mask
-        utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/")
-        with open(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.prune_type}_mask_{comp1}.pkl", 'wb') as fp:
+        utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/")
+        with open(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_mask_{comp1}.pkl", 'wb') as fp:
             pickle.dump(mask, fp)
         
         # Making variables into 0
@@ -238,24 +333,49 @@ def main(args, ITE=0):
         all_loss = np.zeros(args.end_iter,float)
         all_accuracy = np.zeros(args.end_iter,float)
 
-    # Dumping Values for Plotting
-    utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/")
-    comp.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.prune_type}_compression.dat")
-    bestacc.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.prune_type}_bestaccuracy.dat")
+        end_time = time.time()
+        time_taken[_ite]=round(end_time-start_time, 3)
+        
+        write_iterations(args, _ite, comp1)
+        if path.exists(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_compression_{comp[_ite-1]}.dat"):
+            os.remove(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_compression_{comp[_ite-1]}.dat")
+        if path.exists(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_bestaccuracy_{comp[_ite-1]}.dat"):
+            os.remove(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_bestaccuracy_{comp[_ite-1]}.dat")
+        if path.exists(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_time_taken_{comp[_ite-1]}.dat'):
+            os.remove(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_time_taken_{comp[_ite-1]}.dat')
+        
 
-    # Plotting
+
+    # Dumping Values for Plotting
+    utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/")
+    comp.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_compression.dat")
+    bestacc.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_bestaccuracy.dat")
+    time_taken.dump(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_time_taken.dat')
+
+    # Plotting Best Accuracy
     a = np.arange(args.prune_iterations)
     plt.plot(a, bestacc, c="blue", label="Winning tickets") 
-    plt.title(f"Test Accuracy vs Unpruned Weights Percentage ({args.dataset},{args.arch_type})") 
+    plt.title(f"Test Accuracy vs Unpruned Weights Percentage ({args.dataset},{args.arch_type},{args.replication_num})") 
     plt.xlabel("Unpruned Weights Percentage") 
     plt.ylabel("test accuracy") 
     plt.xticks(a, comp, rotation ="vertical") 
     plt.ylim(0,100)
     plt.legend() 
     plt.grid(color="gray") 
-    utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/")
-    plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.prune_type}_AccuracyVsWeights.png", dpi=1200) 
-    plt.close()                    
+    utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/")
+    plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_AccuracyVsWeights.png", dpi=1200) 
+    plt.close()
+
+    # Plotting Time
+    plt.plot(a, time_taken, c="green", laber="time_taken")
+    plt.title(f'Time taken for each iteration to end ({args.dataset},{args.arch_type},{args.replication_num})')
+    plt.xlabel("iterations")
+    plt.ylabel("time (minutes)")
+    plt.legend()
+    plt.grid(color="gray") 
+    utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/")
+    plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_TimeTaken.png", dpi=1200)
+    plt.close()
    
 # Function for Training
 def train(model, train_loader, optimizer, criterion):
@@ -395,7 +515,8 @@ def weight_init(m):
         init.constant_(m.bias.data, 0)
     elif isinstance(m, nn.Linear):
         init.xavier_normal_(m.weight.data)
-        init.normal_(m.bias.data)
+        if m.bias is not None:
+            init.normal_(m.bias.data)
     elif isinstance(m, nn.LSTM):
         for param in m.parameters():
             if len(param.shape) >= 2:
@@ -421,13 +542,41 @@ def weight_init(m):
             else:
                 init.normal_(param.data)
 
+def load_iterations(args):
+    if path.exists(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{args.replication_num}/iteration.txt'):
+        f = open(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{args.replication_num}/iteration.txt', 'r')
+        iter_num, comp = map(int, f.readline().split(' '))
+        f.close()
+        return iter_num, comp
+
+    else:
+        return args.start_iter, 0
+    
+def write_iterations(args, iter_num, comp):
+    utils.checkdir(f"{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{args.replication_num}")
+    f = open(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{args.replication_num}/iteration.txt', 'w')
+    data = f'{iter_num} {comp}'
+    f.write(data)
+    f.close()
+
+def load_datas(args, COMP):
+    global mask
+    utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/")
+    comp = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_compression_{COMP}.dat")
+    bestacc = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_bestaccuracy_{COMP}.dat")
+    time_taken = np.load(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_time_taken_{COMP}.dat')
+    all_loss = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_all_loss_{COMP}.dat")
+    all_accuracy = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_all_accuracy_{COMP}.dat")
+    with open(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_mask_{COMP}.pkl", 'wb') as fp:
+        mask = pickle.load(fp)
+    return comp, bestacc, time_taken, all_loss, all_accuracy
 
 if __name__=="__main__":
     
     #from gooey import Gooey
     #@Gooey      
     
-    # Arguement Parser
+    # Argument Parser
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr",default= 1.2e-3, type=float, help="Learning rate")
     parser.add_argument("--batch_size", default=60, type=int)
@@ -442,6 +591,13 @@ if __name__=="__main__":
     parser.add_argument("--arch_type", default="fc1", type=str, help="fc1 | lenet5 | alexnet | vgg16 | resnet18 | densenet121")
     parser.add_argument("--prune_percent", default=10, type=int, help="Pruning percent")
     parser.add_argument("--prune_iterations", default=35, type=int, help="Pruning iterations count")
+    # Argument Parser for distilled pruning with transformer
+    parser.add_argument("--size", default=32, type=int, help="image size"), 
+    parser.add_argument("--patch_size", default=4, type = int, help="patch size")
+    parser.add_argument("--dimhead", default=512, type = int)
+    parser.add_argument("--data_path", default="", type = str, help="data path")
+    parser.add_argument("--replication_num", default=0, type=int, help="current number of replications")
+    
 
     
     args = parser.parse_args()
