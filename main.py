@@ -548,7 +548,6 @@ def load_iterations(args):
         iter_num, comp = map(int, f.readline().split(' '))
         f.close()
         return iter_num, comp
-
     else:
         return args.start_iter, 0
     
