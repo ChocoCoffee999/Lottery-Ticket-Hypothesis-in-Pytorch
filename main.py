@@ -545,9 +545,9 @@ def weight_init(m):
 def load_iterations(args):
     if path.exists(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{args.replication_num}/iteration.txt'):
         f = open(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{args.replication_num}/iteration.txt', 'r')
-        iter_num, comp = map(int, f.readline().split(' '))
+        iter_num, comp = f.readline().split(' ')
         f.close()
-        return iter_num, comp
+        return int(iter_num), float(comp)
     else:
         return args.start_iter, 0
     
