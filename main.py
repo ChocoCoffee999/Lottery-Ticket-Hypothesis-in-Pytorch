@@ -33,7 +33,7 @@ writer = SummaryWriter()
 sns.set_style('darkgrid')
 
 # Main
-def main(args, ITE=0):
+def main(args, ITE=0, replication=0):
     start_time = time.time()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     reinit = True if args.prune_type=="reinit" else False
@@ -135,7 +135,7 @@ def main(args, ITE=0):
         ).to(device)
     elif args.arch_type == "swin":
         model = swin.swin_t(
-            window_size=args.patch,
+            window_size=args.patch_size,
             num_classes=10,
             downscaling_factors=(2,2,2,1)
         ).to(device)
@@ -195,8 +195,8 @@ def main(args, ITE=0):
 
     # Copying and Saving Initial State
     initial_state_dict = copy.deepcopy(model.state_dict())
-    utils.checkdir(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{args.replication_num}/")
-    torch.save(model, f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{args.replication_num}/initial_state_dict_{args.prune_type}.pth.tar")
+    utils.checkdir(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/")
+    torch.save(model, f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/initial_state_dict_{args.prune_type}.pth.tar")
 
     # Making Initial Mask
     make_mask(model)
@@ -215,15 +215,15 @@ def main(args, ITE=0):
     best_accuracy = 0
     time_taken = 0.0
     ITERATION = args.prune_iterations
-    START, COMP = load_iterations(args)
-    if (START + 1) > ITERATION:
+    START, COMP = load_iterations(args, replication)
+    if START > ITERATION or START < 0:
         print(f"Invalid argument(start_iter : {args.start_iter}, prune_iterations : {args.prune_iterations}, load_iterations : {START})")
         sys.exit()
-    elif (START + 1) == ITERATION:
+    elif START == ITERATION:
         print("This Iteration has already been completed")
         sys.exit()
     elif START:
-        comp, bestacc, time_taken, all_loss, all_accuracy = load_datas(args, COMP)
+        comp, bestacc, time_taken, all_loss, all_accuracy = load_datas(args, replication, COMP)
         step = 0
         del COMP
     else:
@@ -285,8 +285,8 @@ def main(args, ITE=0):
                 # Save Weights
                 if accuracy > best_accuracy:
                     best_accuracy = accuracy
-                    utils.checkdir(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{args.replication_num}/")
-                    torch.save(model,f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{args.replication_num}/{_ite}_model_{args.prune_type}.pth.tar")
+                    utils.checkdir(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/")
+                    torch.save(model,f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/{_ite}_model_{args.prune_type}.pth.tar")
 
             # Training
             loss = train(model, train_loader, optimizer, criterion)
@@ -306,26 +306,26 @@ def main(args, ITE=0):
         #NOTE Normalized the accuracy to [0,100] for ease of plotting.
         plt.plot(np.arange(1,(args.end_iter)+1), 100*(all_loss - np.min(all_loss))/np.ptp(all_loss).astype(float), c="blue", label="Loss") 
         plt.plot(np.arange(1,(args.end_iter)+1), all_accuracy, c="red", label="Accuracy") 
-        plt.title(f"Loss Vs Accuracy Vs Iterations ({args.dataset},{args.arch_type},{args.replication_num})") 
+        plt.title(f"Loss Vs Accuracy Vs Iterations ({args.dataset},{args.arch_type},{replication})") 
         plt.xlabel("Iterations") 
         plt.ylabel("Loss and Accuracy") 
         plt.legend() 
         plt.grid(color="gray") 
-        utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/")
-        plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_LossVsAccuracy_{comp1}.png", dpi=1200) 
+        utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/")
+        plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_LossVsAccuracy_{comp1}.png", dpi=1200) 
         plt.close()
 
         # Dump Plot values
-        utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/")
-        all_loss.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_all_loss_{comp1}.dat")
-        all_accuracy.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_all_accuracy_{comp1}.dat")
-        comp.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_compression_{comp1}.dat")
-        bestacc.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_bestaccuracy_{comp1}.dat")
-        time_taken.dump(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_time_taken_{comp1}.dat')
+        utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/")
+        all_loss.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_all_loss_{comp1}.dat")
+        all_accuracy.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_all_accuracy_{comp1}.dat")
+        comp.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression_{comp1}.dat")
+        bestacc.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy_{comp1}.dat")
+        time_taken.dump(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken_{comp1}.dat')
 
         # Dumping mask
-        utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/")
-        with open(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_mask_{comp1}.pkl", 'wb') as fp:
+        utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/")
+        with open(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_mask_{comp1}.pkl", 'wb') as fp:
             pickle.dump(mask, fp)
         
         # Making variables into 0
@@ -336,45 +336,47 @@ def main(args, ITE=0):
         end_time = time.time()
         time_taken[_ite]=round(end_time-start_time, 3)
         
-        write_iterations(args, _ite, comp1)
-        if path.exists(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_compression_{comp[_ite-1]}.dat"):
-            os.remove(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_compression_{comp[_ite-1]}.dat")
-        if path.exists(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_bestaccuracy_{comp[_ite-1]}.dat"):
-            os.remove(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_bestaccuracy_{comp[_ite-1]}.dat")
-        if path.exists(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_time_taken_{comp[_ite-1]}.dat'):
-            os.remove(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_time_taken_{comp[_ite-1]}.dat')
-        
+        write_iterations(args, replication, _ite, comp1) 
 
 
     # Dumping Values for Plotting
-    utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/")
-    comp.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_compression.dat")
-    bestacc.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_bestaccuracy.dat")
-    time_taken.dump(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_time_taken.dat')
+    utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/")
+    comp.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression.dat")
+    bestacc.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy.dat")
+    time_taken.dump(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken.dat')
+
+    for c in comp:
+        if path.exists(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression_{c}.dat"):
+            os.remove(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression_{c}.dat")
+        if path.exists(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy_{c}.dat"):
+            os.remove(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy_{c}.dat")
+        if path.exists(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken_{c}.dat'):
+            os.remove(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken_{c}.dat')
+       
 
     # Plotting Best Accuracy
     a = np.arange(args.prune_iterations)
     plt.plot(a, bestacc, c="blue", label="Winning tickets") 
-    plt.title(f"Test Accuracy vs Unpruned Weights Percentage ({args.dataset},{args.arch_type},{args.replication_num})") 
+    plt.title(f"Test Accuracy vs Unpruned Weights Percentage ({args.dataset},{args.arch_type},{replication})") 
     plt.xlabel("Unpruned Weights Percentage") 
     plt.ylabel("test accuracy") 
     plt.xticks(a, comp, rotation ="vertical") 
     plt.ylim(0,100)
     plt.legend() 
     plt.grid(color="gray") 
-    utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/")
-    plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_AccuracyVsWeights.png", dpi=1200) 
+    utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/")
+    plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_AccuracyVsWeights.png", dpi=1200) 
     plt.close()
 
     # Plotting Time
     plt.plot(a, time_taken, c="green", laber="time_taken")
-    plt.title(f'Time taken for each iteration to end ({args.dataset},{args.arch_type},{args.replication_num})')
+    plt.title(f'Time taken for each iteration to end ({args.dataset},{args.arch_type},{replication})')
     plt.xlabel("iterations")
     plt.ylabel("time (minutes)")
     plt.legend()
     plt.grid(color="gray") 
-    utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/")
-    plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_TimeTaken.png", dpi=1200)
+    utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/")
+    plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_TimeTaken.png", dpi=1200)
     plt.close()
    
 # Function for Training
@@ -542,33 +544,35 @@ def weight_init(m):
             else:
                 init.normal_(param.data)
 
-def load_iterations(args):
-    if path.exists(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{args.replication_num}/iteration.txt'):
-        f = open(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{args.replication_num}/iteration.txt', 'r')
+def load_iterations(args, replication):
+    if path.exists(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{replication}/iteration.txt'):
+        f = open(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{replication}/iteration.txt', 'r')
         iter_num, comp = f.readline().split(' ')
         f.close()
-        return int(iter_num), float(comp)
+        return int(iter_num) + 1, float(comp)
     else:
-        return args.start_iter, 0
+        return args.start_iter, 0.0
     
-def write_iterations(args, iter_num, comp):
-    utils.checkdir(f"{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{args.replication_num}")
-    f = open(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{args.replication_num}/iteration.txt', 'w')
+def write_iterations(args, replication, iter_num, comp):
+    utils.checkdir(f"{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{replication}")
+    f = open(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{replication}/iteration.txt', 'w')
     data = f'{iter_num} {comp}'
     f.write(data)
     f.close()
 
-def load_datas(args, COMP):
+def load_datas(args, replication, COMP):
     global mask
-    utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/")
-    comp = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_compression_{COMP}.dat")
-    bestacc = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_bestaccuracy_{COMP}.dat")
-    time_taken = np.load(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_time_taken_{COMP}.dat')
-    all_loss = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_all_loss_{COMP}.dat")
-    all_accuracy = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_all_accuracy_{COMP}.dat")
-    with open(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.replication_num}/{args.prune_type}_mask_{COMP}.pkl", 'wb') as fp:
+    utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/")
+    comp = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression_{COMP}.dat", allow_pickle=True)
+    bestacc = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy_{COMP}.dat", allow_pickle=True)
+    time_taken = np.load(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken_{COMP}.dat', allow_pickle=True)
+    all_loss = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_all_loss_{COMP}.dat", allow_pickle=True)
+    all_accuracy = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_all_accuracy_{COMP}.dat", allow_pickle=True)
+    with open(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_mask_{COMP}.pkl", 'rb') as fp:
         mask = pickle.load(fp)
     return comp, bestacc, time_taken, all_loss, all_accuracy
+
+#def remove
 
 if __name__=="__main__":
     
@@ -591,11 +595,11 @@ if __name__=="__main__":
     parser.add_argument("--prune_percent", default=10, type=int, help="Pruning percent")
     parser.add_argument("--prune_iterations", default=35, type=int, help="Pruning iterations count")
     # Argument Parser for distilled pruning with transformer
-    parser.add_argument("--size", default=32, type=int, help="image size"), 
-    parser.add_argument("--patch_size", default=4, type = int, help="patch size")
+    parser.add_argument("--size", default=32, type=int, help="Image size"), 
+    parser.add_argument("--patch_size", default=4, type = int, help="Patch size")
     parser.add_argument("--dimhead", default=512, type = int)
-    parser.add_argument("--data_path", default="", type = str, help="data path")
-    parser.add_argument("--replication_num", default=0, type=int, help="current number of replications")
+    parser.add_argument("--data_path", default="", type = str, help="Data path")
+    parser.add_argument("--replication", default=0, type=int, help="Total number of replications")
     
 
     
@@ -611,4 +615,6 @@ if __name__=="__main__":
 
     # Looping Entire process
     #for i in range(0, 5):
-    main(args, ITE=1)
+    for i in range(args.replication):
+        print('-'*20 +f'replication : {i}'+ '-'*20)
+        main(args, ITE=1, replication = i)
