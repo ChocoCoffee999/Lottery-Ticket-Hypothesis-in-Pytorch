@@ -300,6 +300,8 @@ def main(args, ITE=0, replication=0):
 
         writer.add_scalar('Accuracy/test', best_accuracy, comp1)
         bestacc[_ite]=best_accuracy
+        end_time = time.time()
+        time_taken[_ite]=round(end_time-start_time, 3)
 
         # Plotting Loss (Training), Accuracy (Testing), Iteration Curve
         #NOTE Loss is computed for every iteration while Accuracy is computed only for every {args.valid_freq} iterations. Therefore Accuracy saved is constant during the uncomputed iterations.
@@ -332,9 +334,6 @@ def main(args, ITE=0, replication=0):
         best_accuracy = 0
         all_loss = np.zeros(args.end_iter,float)
         all_accuracy = np.zeros(args.end_iter,float)
-
-        end_time = time.time()
-        time_taken[_ite]=round(end_time-start_time, 3)
         
         write_iterations(args, replication, _ite, comp1) 
 
