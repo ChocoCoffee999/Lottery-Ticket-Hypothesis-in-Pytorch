@@ -218,10 +218,10 @@ def main(args, ITE=0, replication=0):
     START, COMP = load_iterations(args, replication)
     if START > ITERATION or START < 0:
         print(f"Invalid argument(start_iter : {args.start_iter}, prune_iterations : {args.prune_iterations}, load_iterations : {START})")
-        sys.exit()
+        return 0
     elif START == ITERATION:
         print("This Iteration has already been completed")
-        sys.exit()
+        return 0
     elif START:
         comp, bestacc, time_taken, all_loss, all_accuracy = load_datas(args, replication, COMP)
         step = 0
@@ -368,7 +368,7 @@ def main(args, ITE=0, replication=0):
     plt.close()
 
     # Plotting Time
-    plt.plot(a, time_taken, c="green", laber="time_taken")
+    plt.plot(a, time_taken, c="green", label="time_taken")
     plt.title(f'Time taken for each iteration to end ({args.dataset},{args.arch_type},{replication})')
     plt.xlabel("iterations")
     plt.ylabel("time (minutes)")

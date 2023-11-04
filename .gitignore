@@ -8,3 +8,4 @@
 /os*
 /datasets
 *.sh
+__pycache__
