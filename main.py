@@ -67,7 +67,9 @@ def main(args, ITE=0, replication=0):
         traindataset = datasets.CIFAR10('../data', train=True, download=True,transform=transform)
         testdataset = datasets.CIFAR10('../data', train=False, transform=transform)
         #distilled_traindataset = distilled_datasets.CustomDataset(data_path=args.data_path)
-        from archs.transformer_distilled_pruning import cait, simplevit, swin, vit, vit_small
+        from archs.transformer_distilled_pruning import cait, simplevit, swin, vit, vit_small, convnet
+        num_classes = 10
+        channel = 3
 
     elif args.dataset == "cifar100_distilled":
         transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))])
@@ -75,6 +77,8 @@ def main(args, ITE=0, replication=0):
         testdataset = datasets.CIFAR100('../data', train=False, transform=transform)
         distilled_traindataset = distilled_datasets.CustomDataset(data_path=args.data_path)
         from archs.transformer_distilled_pruning import cait, simplevit, swin, vit, vit_small
+        num_classes = 100
+        channel = 3
 
 
     
@@ -185,6 +189,20 @@ def main(args, ITE=0, replication=0):
             dropout = 0.1,
             emb_dropout = 0.1
         ).to(device)
+    elif args.arch_type == "convnet":
+        net_width, net_depth, net_act, net_norm, net_pooling = utils.get_default_convnet_setting()
+        model = convnet.ConvNet(
+            channel=channel, 
+            num_classes=num_classes, 
+            net_width=net_width,
+            net_depth=net_depth, 
+            net_act=net_act, 
+            net_norm=net_norm, 
+            net_pooling=net_pooling, 
+            im_size = (32,32)
+        ).to(device)
+
+
     # If you want to add extra model paste here
     else:
         print("\nWrong Model choice\n")
@@ -394,6 +412,10 @@ def train(model, train_loader, optimizer, criterion):
         # Freezing Pruned weights by making their gradients Zero
         for name, p in model.named_parameters():
             if 'weight' in name:
+                if p is None:
+                    print(f'{name} : {p}')
+                # else:
+                #     print(f'{name}')
                 tensor = p.data.cpu().numpy()
                 grad_tensor = p.grad.data.cpu().numpy()
                 grad_tensor = np.where(tensor < EPS, 0, grad_tensor)

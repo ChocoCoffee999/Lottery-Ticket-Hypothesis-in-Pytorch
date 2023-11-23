@@ -89,3 +89,7 @@ def plot_train_test_stats(stats,
         plt.savefig(savefig, bbox_inches='tight')
     else:
         plt.show()
+
+def get_default_convnet_setting():
+    net_width, net_depth, net_act, net_norm, net_pooling = 128, 3, 'relu', 'instancenorm', 'avgpooling'
+    return net_width, net_depth, net_act, net_norm, net_pooling
