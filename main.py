@@ -60,21 +60,28 @@ def main(args, ITE=0, replication=0):
         transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))])
         traindataset = datasets.CIFAR100('../data', train=True, download=True,transform=transform)
         testdataset = datasets.CIFAR100('../data', train=False, transform=transform)
+        distilled_traindataset = distilled_datasets.CustomDataset(data_path=args.data_path)
         from archs.cifar100 import AlexNet, fc1, LeNet5, vgg, resnet  
     
     elif args.dataset == "cifar10_distilled":
         transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
         traindataset = datasets.CIFAR10('../data', train=True, download=True,transform=transform)
         testdataset = datasets.CIFAR10('../data', train=False, transform=transform)
-        #distilled_traindataset = distilled_datasets.CustomDataset(data_path=args.data_path)
+        if args.distilled_flag:
+            data_path = "local_datasets/distilled_cifar/"+ args.distillation_mode +"/cifar10_ipc"+args.ipc
+            distilled_traindataset = distilled_datasets.CustomDataset(data_path=data_path, transform=transform, ipc=args.ipc)
         from archs.transformer_distilled_pruning import cait, simplevit, swin, vit, vit_small
+        num_classes = 10
 
     elif args.dataset == "cifar100_distilled":
         transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))])
         traindataset = datasets.CIFAR100('../data', train=True, download=True,transform=transform)
         testdataset = datasets.CIFAR100('../data', train=False, transform=transform)
-        distilled_traindataset = distilled_datasets.CustomDataset(data_path=args.data_path)
+        if args.distilled_flag:
+            data_path = "local_datasets/distilled_cifar/"+ args.distillation_mode +"/cifar100_ipc"+args.ipc
+            distilled_traindataset = distilled_datasets.CustomDataset(data_path=data_path, transform=transform, ipc=args.ipc)
         from archs.transformer_distilled_pruning import cait, simplevit, swin, vit, vit_small
+        num_classes = 100
 
 
     
@@ -88,8 +95,8 @@ def main(args, ITE=0, replication=0):
     #train_loader = cycle(train_loader)
     test_loader = torch.utils.data.DataLoader(testdataset, batch_size=args.batch_size, shuffle=False, num_workers=0,drop_last=True)
 
-    # if args.dataset == "cifar10_distilled" or "cifar100_distilled":
-    #     distilled_train_loader = torch.utils.data.DataLoader(distilled_traindataset, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=False)
+    if args.distilled_flag:
+        distilled_train_loader = torch.utils.data.DataLoader(distilled_traindataset, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=False)
     
     # Importing Network Architecture
     global model
@@ -109,7 +116,7 @@ def main(args, ITE=0, replication=0):
         model = cait.CaiT(
             image_size = args.size,
             patch_size = args.patch_size,
-            num_classes = 10,
+            num_classes = num_classes,
             dim = int(args.dimhead),
             depth = 6,   # depth of transformer for patch to patch attention only
             cls_depth=2, # depth of cross attention of CLS tokens to patch
@@ -123,7 +130,7 @@ def main(args, ITE=0, replication=0):
         model = cait.CaiT(
             image_size = 32,
             patch_size = args.patch_size,
-            num_classes = 10,
+            num_classes = num_classes,
             dim = int(args.dimhead),
             depth = 6,   # depth of transformer for patch to patch attention only
             cls_depth=2, # depth of cross attention of CLS tokens to patch
@@ -136,14 +143,14 @@ def main(args, ITE=0, replication=0):
     elif args.arch_type == "swin":
         model = swin.swin_t(
             window_size=args.patch_size,
-            num_classes=10,
+            num_classes=num_classes,
             downscaling_factors=(2,2,2,1)
         ).to(device)
     elif args.arch_type == "simplevit":
         model = simplevit.SimpleViT(
             image_size = args.size,
             patch_size = args.patch_size,
-            num_classes = 10,
+            num_classes = num_classes,
             dim = int(args.dimhead),
             depth = 6,
             heads = 8,
@@ -153,7 +160,7 @@ def main(args, ITE=0, replication=0):
         model = vit.ViT(
             image_size = args.size,
             patch_size = args.patch_size,
-            num_classes = 10,
+            num_classes = num_classes,
             dim = int(args.dimhead),
             depth = 6,
             heads = 8,
@@ -165,7 +172,7 @@ def main(args, ITE=0, replication=0):
         model = vit_small.ViT(
             image_size = args.size,
             patch_size = args.patch_size,
-            num_classes = 10,
+            num_classes = num_classes,
             dim = int(args.dimhead),
             depth = 6,
             heads = 8,
@@ -177,7 +184,7 @@ def main(args, ITE=0, replication=0):
         model = vit_small.ViT(
             image_size = args.size,
             patch_size = args.patch_size,
-            num_classes = 10,
+            num_classes = num_classes,
             dim = int(args.dimhead),
             depth = 4,
             heads = 6,
@@ -191,12 +198,18 @@ def main(args, ITE=0, replication=0):
         exit()
 
     # Weight Initialization
-    model.apply(weight_init)
+    if os.path.isfile(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/initial_state_dict_{args.prune_type}.pth.tar"):
+        model.load(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/initial_state_dict_{args.prune_type}.pth.tar")
+        initial_state_dict = copy.deepcopy(model.state_dict())
+    else:
+        if args.distilled_flag:
+            sys.exit()
+        model.apply(weight_init)
 
-    # Copying and Saving Initial State
-    initial_state_dict = copy.deepcopy(model.state_dict())
-    utils.checkdir(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/")
-    torch.save(model, f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/initial_state_dict_{args.prune_type}.pth.tar")
+        # Copying and Saving Initial State
+        initial_state_dict = copy.deepcopy(model.state_dict())
+        utils.checkdir(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/")
+        torch.save(model, f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/initial_state_dict_{args.prune_type}.pth.tar")
 
     # Making Initial Mask
     make_mask(model)
@@ -218,10 +231,10 @@ def main(args, ITE=0, replication=0):
     START, COMP = load_iterations(args, replication)
     if START > ITERATION or START < 0:
         print(f"Invalid argument(start_iter : {args.start_iter}, prune_iterations : {args.prune_iterations}, load_iterations : {START})")
-        sys.exit()
+        return 0
     elif START == ITERATION:
         print("This Iteration has already been completed")
-        sys.exit()
+        return 0
     elif START:
         comp, bestacc, time_taken, all_loss, all_accuracy = load_datas(args, replication, COMP)
         step = 0
@@ -368,7 +381,7 @@ def main(args, ITE=0, replication=0):
     plt.close()
 
     # Plotting Time
-    plt.plot(a, time_taken, c="green", laber="time_taken")
+    plt.plot(a, time_taken, c="green", label="time_taken")
     plt.title(f'Time taken for each iteration to end ({args.dataset},{args.arch_type},{replication})')
     plt.xlabel("iterations")
     plt.ylabel("time (minutes)")
@@ -597,8 +610,11 @@ if __name__=="__main__":
     parser.add_argument("--size", default=32, type=int, help="Image size"), 
     parser.add_argument("--patch_size", default=4, type = int, help="Patch size")
     parser.add_argument("--dimhead", default=512, type = int)
-    parser.add_argument("--data_path", default="", type = str, help="Data path")
-    parser.add_argument("--replication", default=0, type=int, help="Total number of replications")
+    parser.add_argument("--replications", default=0, type=int, help="Total number of replications")
+    parser.add_argument("--start_replication", defulat=0, type=int, help="Start number of replication")
+    parser.add_argument("--distilled_flag", default=False, type=bool, help="If True else False")
+    parser.add_argument("--distillation_mode", type=str, help="dataset distillation method, choice : dc | tm")
+    parser.add_argument("--ipc", type=int, help="image per class\ndc mode choice : 1 | 10\ntm mode choice : 1 | 10 | 50")
     
 
     
@@ -614,6 +630,6 @@ if __name__=="__main__":
 
     # Looping Entire process
     #for i in range(0, 5):
-    for i in range(args.replication):
+    for i in range(args.start_replication, args.replications):
         print('-'*20 +f'replication : {i}'+ '-'*20)
         main(args, ITE=1, replication = i)

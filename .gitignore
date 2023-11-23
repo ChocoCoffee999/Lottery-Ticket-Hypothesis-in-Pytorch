@@ -6,5 +6,6 @@
 /.vscode
 /logs
 /os*
-/datasets
+datasets
 *.sh
+__pycache__
