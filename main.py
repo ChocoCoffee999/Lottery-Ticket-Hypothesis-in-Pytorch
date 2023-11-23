@@ -631,7 +631,7 @@ if __name__=="__main__":
     parser.add_argument("--patch_size", default=4, type = int, help="Patch size")
     parser.add_argument("--dimhead", default=512, type = int)
     parser.add_argument("--replications", default=0, type=int, help="Total number of replications")
-    parser.add_argument("--start_replication", defulat=0, type=int, help="Start number of replication")
+    parser.add_argument("--start_replication", default=0, type=int, help="Start number of replication")
     parser.add_argument("--distilled_flag", default=False, type=bool, help="If True else False")
     parser.add_argument("--distillation_mode", type=str, help="dataset distillation method, choice : dc | tm")
     parser.add_argument("--ipc", type=int, help="image per class\ndc mode choice : 1 | 10\ntm mode choice : 1 | 10 | 50")
