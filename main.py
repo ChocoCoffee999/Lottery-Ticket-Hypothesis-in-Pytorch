@@ -215,7 +215,7 @@ def main(args, ITE=0, replication=0):
 
     # Weight Initialization
     if os.path.isfile(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/initial_state_dict_{args.prune_type}.pth.tar"):
-        model.load(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/initial_state_dict_{args.prune_type}.pth.tar")
+        model = torch.load(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/initial_state_dict_{args.prune_type}.pth.tar")
         initial_state_dict = copy.deepcopy(model.state_dict())
     else:
         if args.distilled_flag:
