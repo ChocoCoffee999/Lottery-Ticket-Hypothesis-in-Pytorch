@@ -67,8 +67,8 @@ def main(args, ITE=0, replication=0):
         transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
         traindataset = datasets.CIFAR10('../data', train=True, download=True,transform=transform)
         testdataset = datasets.CIFAR10('../data', train=False, transform=transform)
-        if args.distilled_flag:
-            data_path = "local_datasets/distilled_cifar/"+ args.distillation_mode +"/cifar10_ipc"+args.ipc
+        if args.distilled_pruning:
+            data_path = f'/local_datasets/distilled_cifar/datasets/cifar10/{args.distillation_mode}/cifar10_ipc{args.ipc}'
             distilled_traindataset = distilled_datasets.CustomDataset(data_path=data_path, transform=transform, ipc=args.ipc)
         from archs.transformer_distilled_pruning import cait, simplevit, swin, vit, vit_small, convnet
         num_classes = 10
@@ -78,8 +78,8 @@ def main(args, ITE=0, replication=0):
         transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))])
         traindataset = datasets.CIFAR100('../data', train=True, download=True,transform=transform)
         testdataset = datasets.CIFAR100('../data', train=False, transform=transform)
-        if args.distilled_flag:
-            data_path = "local_datasets/distilled_cifar/"+ args.distillation_mode +"/cifar100_ipc"+args.ipc
+        if args.distilled_pruning:
+            data_path = f'/local_datasets/distilled_cifar/datasets/cifar100/{args.distillation_mode}/cifar100_ipc{args.ipc}'
             distilled_traindataset = distilled_datasets.CustomDataset(data_path=data_path, transform=transform, ipc=args.ipc)
         from archs.transformer_distilled_pruning import cait, simplevit, swin, vit, vit_small
         num_classes = 100
@@ -97,7 +97,7 @@ def main(args, ITE=0, replication=0):
     #train_loader = cycle(train_loader)
     test_loader = torch.utils.data.DataLoader(testdataset, batch_size=args.batch_size, shuffle=False, num_workers=0,drop_last=True)
 
-    if args.distilled_flag:
+    if args.distilled_pruning:
         distilled_train_loader = torch.utils.data.DataLoader(distilled_traindataset, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=False)
     
     # Importing Network Architecture
@@ -215,10 +215,11 @@ def main(args, ITE=0, replication=0):
 
     # Weight Initialization
     if os.path.isfile(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/initial_state_dict_{args.prune_type}.pth.tar"):
-        model.load(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/initial_state_dict_{args.prune_type}.pth.tar")
+        model = torch.load(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/initial_state_dict_{args.prune_type}.pth.tar")
         initial_state_dict = copy.deepcopy(model.state_dict())
     else:
-        if args.distilled_flag:
+        if args.distilled_pruning:
+            print("there is no initial_state_dict")
             sys.exit()
         model.apply(weight_init)
 
@@ -240,11 +241,14 @@ def main(args, ITE=0, replication=0):
 
     # Pruning
     # NOTE First Pruning Iteration is of No Compression
+    sub_iteration = list(map(int, args.sub_iterations.split(',')))
+    total_sub_iteration = sum(sub_iteration)
+
     bestacc = 0.0
     best_accuracy = 0
     time_taken = 0.0
     ITERATION = args.prune_iterations
-    START, COMP = load_iterations(args, replication)
+    START, COMP = load_iterations(args, replication, sub_iteration)
     if START > ITERATION or START < 0:
         print(f"Invalid argument(start_iter : {args.start_iter}, prune_iterations : {args.prune_iterations}, load_iterations : {START})")
         return 0
@@ -252,7 +256,7 @@ def main(args, ITE=0, replication=0):
         print("This Iteration has already been completed")
         return 0
     elif START:
-        comp, bestacc, time_taken, all_loss, all_accuracy = load_datas(args, replication, COMP)
+        comp, bestacc, time_taken, all_loss, all_accuracy = load_datas(args, replication, COMP, sub_iteration)
         step = 0
         del COMP
     else:
@@ -263,6 +267,7 @@ def main(args, ITE=0, replication=0):
         step = 0
         all_loss = np.zeros(args.end_iter,float)
         all_accuracy = np.zeros(args.end_iter,float)
+
 
 
     for _ite in range(START, ITERATION):
@@ -304,9 +309,14 @@ def main(args, ITE=0, replication=0):
         comp1 = utils.print_nonzeros(model)
         comp[_ite] = comp1
         pbar = tqdm(range(args.end_iter))
-
+        
+        sub_iteration_count = 0
+        if sub_iteration[0]:
+            distilled_flag = False
+        else:
+            distilled_flag = True
         for iter_ in pbar:
-
+            sub_iteration_count+=1
             # Frequency for Testing
             if iter_ % args.valid_freq == 0:
                 accuracy = test(model, test_loader, criterion)
@@ -314,18 +324,40 @@ def main(args, ITE=0, replication=0):
                 # Save Weights
                 if accuracy > best_accuracy:
                     best_accuracy = accuracy
-                    utils.checkdir(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/")
-                    torch.save(model,f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/{_ite}_model_{args.prune_type}.pth.tar")
+                    if args.distilled_pruning:
+                        utils.checkdir(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/")
+                        torch.save(model,f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{_ite}_model_{args.prune_type}.pth.tar")
+                    else:
+                        utils.checkdir(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/")
+                        torch.save(model,f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{replication}/{_ite}_model_{args.prune_type}.pth.tar")
+                    
 
             # Training
-            loss = train(model, train_loader, optimizer, criterion)
+            if args.distilled_pruning and distilled_flag:
+                loss = train(model, distilled_train_loader, optimizer, criterion)
+            else:
+                loss = train(model, train_loader, optimizer, criterion)
             all_loss[iter_] = loss
             all_accuracy[iter_] = accuracy
             
             # Frequency for Printing Accuracy and Loss
             if iter_ % args.print_freq == 0:
-                pbar.set_description(
-                    f'Train Epoch: {iter_}/{args.end_iter} Loss: {loss:.6f} Accuracy: {accuracy:.2f}% Best Accuracy: {best_accuracy:.2f}%')       
+                if distilled_flag:
+                    pbar.set_description(
+                        f'Train Epoch(distilled dataset): {iter_}/{args.end_iter} Loss: {loss:.6f} Accuracy: {accuracy:.2f}% Best Accuracy: {best_accuracy:.2f}%')
+                else:
+                    pbar.set_description(
+                        f'Train Epoch: {iter_}/{args.end_iter} Loss: {loss:.6f} Accuracy: {accuracy:.2f}% Best Accuracy: {best_accuracy:.2f}%')
+
+            if sub_iteration_count == total_sub_iteration:
+                sub_iteration_count = 0
+                distilled_flag = not distilled_flag
+            for j in range(len(sub_iteration)):
+                if sub_iteration_count == sum(sub_iteration[:j+1]) % total_sub_iteration:
+                    distilled_flag = not distilled_flag
+                    break
+                elif sub_iteration_count < sum(sub_iteration[:j+1]):
+                    break
 
         writer.add_scalar('Accuracy/test', best_accuracy, comp1)
         bestacc[_ite]=best_accuracy
@@ -335,77 +367,142 @@ def main(args, ITE=0, replication=0):
         # Plotting Loss (Training), Accuracy (Testing), Iteration Curve
         #NOTE Loss is computed for every iteration while Accuracy is computed only for every {args.valid_freq} iterations. Therefore Accuracy saved is constant during the uncomputed iterations.
         #NOTE Normalized the accuracy to [0,100] for ease of plotting.
-        plt.plot(np.arange(1,(args.end_iter)+1), 100*(all_loss - np.min(all_loss))/np.ptp(all_loss).astype(float), c="blue", label="Loss") 
-        plt.plot(np.arange(1,(args.end_iter)+1), all_accuracy, c="red", label="Accuracy") 
-        plt.title(f"Loss Vs Accuracy Vs Iterations ({args.dataset},{args.arch_type},{replication})") 
-        plt.xlabel("Iterations") 
-        plt.ylabel("Loss and Accuracy") 
-        plt.legend() 
-        plt.grid(color="gray") 
-        utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/")
-        plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_LossVsAccuracy_{comp1}.png", dpi=1200) 
-        plt.close()
+        if args.distilled_pruning:
+            plt.plot(np.arange(1,(args.end_iter)+1), 100*(all_loss - np.min(all_loss))/np.ptp(all_loss).astype(float), c="blue", label="Loss") 
+            plt.plot(np.arange(1,(args.end_iter)+1), all_accuracy, c="red", label="Accuracy") 
+            plt.title(f"Loss Vs Accuracy Vs Iterations ({args.dataset},{args.arch_type},{replication})") 
+            plt.xlabel("Iterations") 
+            plt.ylabel("Loss and Accuracy") 
+            plt.legend() 
+            plt.grid(color="gray") 
+            utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/")
+            plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_LossVsAccuracy_{comp1}.png", dpi=1200) 
+            plt.close()
 
-        # Dump Plot values
-        utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/")
-        all_loss.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_all_loss_{comp1}.dat")
-        all_accuracy.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_all_accuracy_{comp1}.dat")
-        comp.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression_{comp1}.dat")
-        bestacc.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy_{comp1}.dat")
-        time_taken.dump(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken_{comp1}.dat')
+            # Dump Plot values
+            utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/")
+            all_loss.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_all_loss_{comp1}.dat")
+            all_accuracy.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_all_accuracy_{comp1}.dat")
+            comp.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_compression_{comp1}.dat")
+            bestacc.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_bestaccuracy_{comp1}.dat")
+            time_taken.dump(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_time_taken_{comp1}.dat')
 
-        # Dumping mask
-        utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/")
-        with open(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_mask_{comp1}.pkl", 'wb') as fp:
-            pickle.dump(mask, fp)
+            # Dumping mask
+            utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/")
+            with open(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_mask_{comp1}.pkl", 'wb') as fp:
+                pickle.dump(mask, fp)
+        else:
+            plt.plot(np.arange(1,(args.end_iter)+1), 100*(all_loss - np.min(all_loss))/np.ptp(all_loss).astype(float), c="blue", label="Loss") 
+            plt.plot(np.arange(1,(args.end_iter)+1), all_accuracy, c="red", label="Accuracy") 
+            plt.title(f"Loss Vs Accuracy Vs Iterations ({args.dataset},{args.arch_type},{replication})") 
+            plt.xlabel("Iterations") 
+            plt.ylabel("Loss and Accuracy") 
+            plt.legend() 
+            plt.grid(color="gray") 
+            utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/")
+            plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_LossVsAccuracy_{comp1}.png", dpi=1200) 
+            plt.close()
+
+            # Dump Plot values
+            utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/")
+            all_loss.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_all_loss_{comp1}.dat")
+            all_accuracy.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_all_accuracy_{comp1}.dat")
+            comp.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression_{comp1}.dat")
+            bestacc.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy_{comp1}.dat")
+            time_taken.dump(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken_{comp1}.dat')
+
+            # Dumping mask
+            utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/")
+            with open(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_mask_{comp1}.pkl", 'wb') as fp:
+                pickle.dump(mask, fp)
         
         # Making variables into 0
         best_accuracy = 0
         all_loss = np.zeros(args.end_iter,float)
         all_accuracy = np.zeros(args.end_iter,float)
         
-        write_iterations(args, replication, _ite, comp1) 
+        write_iterations(args, replication, _ite, comp1, sub_iteration) 
 
 
     # Dumping Values for Plotting
-    utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/")
-    comp.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression.dat")
-    bestacc.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy.dat")
-    time_taken.dump(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken.dat')
+    if args.distilled_pruning:
+        utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/")
+        comp.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_compression.dat")
+        bestacc.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_bestaccuracy.dat")
+        time_taken.dump(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_time_taken.dat')
 
-    for c in comp:
-        if path.exists(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression_{c}.dat"):
-            os.remove(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression_{c}.dat")
-        if path.exists(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy_{c}.dat"):
-            os.remove(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy_{c}.dat")
-        if path.exists(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken_{c}.dat'):
-            os.remove(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken_{c}.dat')
-       
+        for c in comp:
+            if path.exists(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_compression_{c}.dat"):
+                os.remove(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_compression_{c}.dat")
+            if path.exists(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_bestaccuracy_{c}.dat"):
+                os.remove(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_bestaccuracy_{c}.dat")
+            if path.exists(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_time_taken_{c}.dat'):
+                os.remove(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_time_taken_{c}.dat')
+        
 
-    # Plotting Best Accuracy
-    a = np.arange(args.prune_iterations)
-    plt.plot(a, bestacc, c="blue", label="Winning tickets") 
-    plt.title(f"Test Accuracy vs Unpruned Weights Percentage ({args.dataset},{args.arch_type},{replication})") 
-    plt.xlabel("Unpruned Weights Percentage") 
-    plt.ylabel("test accuracy") 
-    plt.xticks(a, comp, rotation ="vertical") 
-    plt.ylim(0,100)
-    plt.legend() 
-    plt.grid(color="gray") 
-    utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/")
-    plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_AccuracyVsWeights.png", dpi=1200) 
-    plt.close()
+        # Plotting Best Accuracy
+        a = np.arange(args.prune_iterations)
+        plt.plot(a, bestacc, c="blue", label="Winning tickets") 
+        plt.title(f"Test Accuracy vs Unpruned Weights Percentage ({args.dataset},{args.arch_type},{replication},{args.distillation_mode},{args.ipc}/)") 
+        plt.xlabel("Unpruned Weights Percentage") 
+        plt.ylabel("test accuracy") 
+        plt.xticks(a, comp, rotation ="vertical") 
+        plt.ylim(0,100)
+        plt.legend() 
+        plt.grid(color="gray") 
+        utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/")
+        plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_AccuracyVsWeights.png", dpi=1200) 
+        plt.close()
 
-    # Plotting Time
-    plt.plot(a, time_taken, c="green", label="time_taken")
-    plt.title(f'Time taken for each iteration to end ({args.dataset},{args.arch_type},{replication})')
-    plt.xlabel("iterations")
-    plt.ylabel("time (minutes)")
-    plt.legend()
-    plt.grid(color="gray") 
-    utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/")
-    plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_TimeTaken.png", dpi=1200)
-    plt.close()
+        # Plotting Time
+        plt.plot(a, time_taken, c="green", label="time_taken")
+        plt.title(f'Time taken for each iteration to end ({args.dataset},{args.arch_type},{replication},{args.distillation_mode},{args.ipc}/)')
+        plt.xlabel("iterations")
+        plt.ylabel("time (minutes)")
+        plt.legend()
+        plt.grid(color="gray") 
+        utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/")
+        plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_TimeTaken.png", dpi=1200)
+        plt.close()
+    else:
+        utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/")
+        comp.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression.dat")
+        bestacc.dump(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy.dat")
+        time_taken.dump(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken.dat')
+
+        for c in comp:
+            if path.exists(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression_{c}.dat"):
+                os.remove(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression_{c}.dat")
+            if path.exists(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy_{c}.dat"):
+                os.remove(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy_{c}.dat")
+            if path.exists(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken_{c}.dat'):
+                os.remove(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken_{c}.dat')
+        
+
+        # Plotting Best Accuracy
+        a = np.arange(args.prune_iterations)
+        plt.plot(a, bestacc, c="blue", label="Winning tickets") 
+        plt.title(f"Test Accuracy vs Unpruned Weights Percentage ({args.dataset},{args.arch_type},{replication})") 
+        plt.xlabel("Unpruned Weights Percentage") 
+        plt.ylabel("test accuracy") 
+        plt.xticks(a, comp, rotation ="vertical") 
+        plt.ylim(0,100)
+        plt.legend() 
+        plt.grid(color="gray") 
+        utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/")
+        plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_AccuracyVsWeights.png", dpi=1200) 
+        plt.close()
+
+        # Plotting Time
+        plt.plot(a, time_taken, c="green", label="time_taken")
+        plt.title(f'Time taken for each iteration to end ({args.dataset},{args.arch_type},{replication})')
+        plt.xlabel("iterations")
+        plt.ylabel("time (minutes)")
+        plt.legend()
+        plt.grid(color="gray") 
+        utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/")
+        plt.savefig(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_TimeTaken.png", dpi=1200)
+        plt.close()
    
 # Function for Training
 def train(model, train_loader, optimizer, criterion):
@@ -576,32 +673,58 @@ def weight_init(m):
             else:
                 init.normal_(param.data)
 
-def load_iterations(args, replication):
-    if path.exists(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{replication}/iteration.txt'):
-        f = open(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{replication}/iteration.txt', 'r')
-        iter_num, comp = f.readline().split(' ')
-        f.close()
-        return int(iter_num) + 1, float(comp)
+def load_iterations(args, replication, sub_iteration):
+    if args.distilled_pruning:
+        if path.exists(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/iteration.txt'):
+            f = open(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/iteration.txt', 'r')
+            iter_num, comp = f.readline().split(' ')
+            f.close()
+            return int(iter_num) + 1, float(comp)
+        else:
+            return args.start_iter, 0.0
     else:
-        return args.start_iter, 0.0
+        if path.exists(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{replication}/iteration.txt'):
+            f = open(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{replication}/iteration.txt', 'r')
+            iter_num, comp = f.readline().split(' ')
+            f.close()
+            return int(iter_num) + 1, float(comp)
+        else:
+            return args.start_iter, 0.0
     
-def write_iterations(args, replication, iter_num, comp):
-    utils.checkdir(f"{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{replication}")
-    f = open(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{replication}/iteration.txt', 'w')
-    data = f'{iter_num} {comp}'
-    f.write(data)
-    f.close()
+def write_iterations(args, replication, iter_num, comp, sub_iteration):
+    if args.distilled_pruning:
+        utils.checkdir(f"{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}")
+        f = open(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/iteration.txt', 'w')
+        data = f'{iter_num} {comp}'
+        f.write(data)
+        f.close()
+    else:
+        utils.checkdir(f"{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{replication}")
+        f = open(f'{os.getcwd()}/logs/{args.arch_type}/{args.dataset}/{replication}/iteration.txt', 'w')
+        data = f'{iter_num} {comp}'
+        f.write(data)
+        f.close()
 
-def load_datas(args, replication, COMP):
+def load_datas(args, replication, COMP, sub_iteration):
     global mask
-    utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/")
-    comp = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression_{COMP}.dat", allow_pickle=True)
-    bestacc = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy_{COMP}.dat", allow_pickle=True)
-    time_taken = np.load(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken_{COMP}.dat', allow_pickle=True)
-    all_loss = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_all_loss_{COMP}.dat", allow_pickle=True)
-    all_accuracy = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_all_accuracy_{COMP}.dat", allow_pickle=True)
-    with open(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_mask_{COMP}.pkl", 'rb') as fp:
-        mask = pickle.load(fp)
+    if args.distilled_pruning:
+        utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/")
+        comp = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_compression_{COMP}.dat", allow_pickle=True)
+        bestacc = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_bestaccuracy_{COMP}.dat", allow_pickle=True)
+        time_taken = np.load(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_time_taken_{COMP}.dat', allow_pickle=True)
+        all_loss = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_all_loss_{COMP}.dat", allow_pickle=True)
+        all_accuracy = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_all_accuracy_{COMP}.dat", allow_pickle=True)
+        with open(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.distillation_mode}/{args.ipc}/{sub_iteration}/{replication}/{args.prune_type}_mask_{COMP}.pkl", 'rb') as fp:
+            mask = pickle.load(fp)
+    else:
+        utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/")
+        comp = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_compression_{COMP}.dat", allow_pickle=True)
+        bestacc = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_bestaccuracy_{COMP}.dat", allow_pickle=True)
+        time_taken = np.load(f'{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_time_taken_{COMP}.dat', allow_pickle=True)
+        all_loss = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_all_loss_{COMP}.dat", allow_pickle=True)
+        all_accuracy = np.load(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_all_accuracy_{COMP}.dat", allow_pickle=True)
+        with open(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{replication}/{args.prune_type}_mask_{COMP}.pkl", 'rb') as fp:
+            mask = pickle.load(fp)
     return comp, bestacc, time_taken, all_loss, all_accuracy
 
 #def remove
@@ -632,9 +755,10 @@ if __name__=="__main__":
     parser.add_argument("--dimhead", default=512, type = int)
     parser.add_argument("--replications", default=0, type=int, help="Total number of replications")
     parser.add_argument("--start_replication", default=0, type=int, help="Start number of replication")
-    parser.add_argument("--distilled_flag", default=False, type=bool, help="If True else False")
+    parser.add_argument("--distilled_pruning", default=False, type=bool, help="If True else False")
     parser.add_argument("--distillation_mode", type=str, help="dataset distillation method, choice : dc | tm")
     parser.add_argument("--ipc", type=int, help="image per class\ndc mode choice : 1 | 10\ntm mode choice : 1 | 10 | 50")
+    parser.add_argument("--sub_iterations", type=str,default="100",help="Sub iteration for distilled pruning")
     
 
     

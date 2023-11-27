@@ -18,17 +18,17 @@ class CustomDataset(Dataset):
 
         #self.images = [os.path.join(data_path, image) for image in os.listdir(data_path)]
     def __len__(self):
-        return sum(len(files) for _, _, files in os.walk(self.root_dir))
+        return sum(len(files) for _, _, files in os.walk(self.data_path))
     
     def __getitem__(self, idx):
-        class_folder = os.path.join(self.root_dir, self.classes[idx // self.ipc])
+        class_folder = os.path.join(self.data_path, self.classes[idx // self.ipc])
         if self.ipc <= 10:
-            img_name = f"{self.classes[idx // self.ipc]}_{(idx % self.ipc) + 1:01d}.jpg"
+            img_name = f"{self.classes[idx // self.ipc]}_{(idx % self.ipc):01d}.png"
         else:
-            img_name = f"{self.classes[idx // self.ipc]}_{(idx % self.ipc) + 1:02d}.jpg"
+            img_name = f"{self.classes[idx // self.ipc]}_{(idx % self.ipc):02d}.png"
         img_path = os.path.join(class_folder, img_name)
         img = load_img(img_path)
 
         if self.transform:
             img = self.transform(img)
-        return img
+        return img, idx // self.ipc
